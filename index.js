@@ -2,12 +2,17 @@
 
 import fetch from "node-fetch";
 import cheerio from 'cheerio';
+import dotenv from 'dotenv';
+import { exec } from 'child_process';
+
+dotenv.config();
 
 const EMAIL = process.env.EMAIL
 const PASSWORD = process.env.PASSWORD
 const SCHEDULE_ID = process.env.SCHEDULE_ID
 const FACILITY_ID = process.env.FACILITY_ID
 const LOCALE = process.env.LOCALE
+const CURRENT_SCHEDULED_DATE = process.env.CURRENT_SCHEDULED_DATE
 const REFRESH_DELAY = Number(process.env.REFRESH_DELAY || 3)
 
 const BASE_URI = `https://ais.usvisa-info.com/${LOCALE}/niv`
@@ -25,17 +30,42 @@ async function main(currentBookedDate) {
 
     while(true) {
       const date = await checkAvailableDate(sessionHeaders)
-
       if (!date) {
         log("no dates available")
       } else if (date > currentBookedDate) {
         log(`nearest date is further than already booked (${currentBookedDate} vs ${date})`)
-      } else {
+      } else if (date < currentBookedDate) {
         currentBookedDate = date
         const time = await checkAvailableTime(sessionHeaders, date)
 
-        book(sessionHeaders, date, time)
+        log(`FOUND DATE at ${date} ${time}`)
+        log(`FOUND DATE at ${date} ${time}`)
+        log(`FOUND DATE at ${date} ${time}`)
+
+        exec('toast64.exe --app-id "US VISA BOT" --title "AVAILABLE DATE FOUND" --message "A closer available date for scheduling was found for the US VISA." --audio "default" --loop --activation-arg "https://ais.usvisa-info.com/pt-pt/niv/users/sign_in"', (error, stdout, stderr) => {
+          if (error) {
+            console.error(`Error: ${error.message}`);
+            return;
+          }
+          if (stderr) {
+            console.error(`Standard Error: ${stderr}`);
+            return;
+          }
+          console.log(`Output: ${stdout}`);
+        });
+        
+        await book(sessionHeaders, date, time)
           .then(d => log(`booked time at ${date} ${time}`))
+        
+        await sleep(30000); // 30 seconds
+        await sleep(15000); // 15 seconds
+
+        process.exit(0); // Exit with a success code
+
+      } else if (date == currentBookedDate) {
+        log(`The available date is equal to your booked date (${date})`)
+      } else {
+        log(`Check if there's any problem with the APPLICATION (${date})`)
       }
 
       await sleep(REFRESH_DELAY)
@@ -132,16 +162,12 @@ async function book(headers, date, time) {
       'Content-Type': 'application/x-www-form-urlencoded',
     }),
     "body": new URLSearchParams({
-      'utf8': '✓',
       'authenticity_token': newHeaders['X-CSRF-Token'],
       'confirmed_limit_message': '1',
       'use_consulate_appointment_capacity': 'true',
       'appointments[consulate_appointment][facility_id]': FACILITY_ID,
       'appointments[consulate_appointment][date]': date,
-      'appointments[consulate_appointment][time]': time,
-      'appointments[asc_appointment][facility_id]': '',
-      'appointments[asc_appointment][date]': '',
-      'appointments[asc_appointment][time]': ''
+      'appointments[consulate_appointment][time]': time
     }),
   })
 }
@@ -190,6 +216,6 @@ function log(message) {
   console.log(`[${new Date().toISOString()}]`, message)
 }
 
-const args = process.argv.slice(2);
-const currentBookedDate = args[0]
-main(currentBookedDate)
+
+
+main(CURRENT_SCHEDULED_DATE)
