@@ -3,7 +3,7 @@
 import fetch from "node-fetch";
 import cheerio from 'cheerio';
 import dotenv from 'dotenv';
-import { exec } from 'child_process';
+// import { exec } from 'child_process';
 
 dotenv.config();
 
@@ -19,63 +19,81 @@ const BASE_URI = `https://ais.usvisa-info.com/${LOCALE}/niv`
 
 async function main(currentBookedDate) {
   if (!currentBookedDate) {
-    log(`Invalid current booked date: ${currentBookedDate}`)
-    process.exit(1)
+    log(`Invalid current booked date: ${currentBookedDate}`);
+    process.exit(1);
   }
 
-  log(`Initializing with current date ${currentBookedDate}`)
+  log(`Initializing with current date ${currentBookedDate}`);
 
   try {
-    const sessionHeaders = await login()
+    const sessionHeaders = await login();
 
-    while(true) {
-      const date = await checkAvailableDate(sessionHeaders)
+    while (true) {
+      const date = await checkAvailableDate(sessionHeaders);
       if (!date) {
-        log("no dates available")
+        log("No dates available");
       } else if (date > currentBookedDate) {
-        log(`nearest date is further than already booked (${currentBookedDate} vs ${date})`)
+        log(`Nearest date is further than already booked (${currentBookedDate} vs ${date})`);
       } else if (date < currentBookedDate) {
-        currentBookedDate = date
-        const time = await checkAvailableTime(sessionHeaders, date)
+        // Parse the dates for comparison
+        const currentDate = new Date(`${currentBookedDate}T00:00:00`); // Ensure correct parsing
+        const newDate = new Date(`${date}T00:00:00`);
 
-        log(`FOUND DATE at ${date} ${time}`)
-        log(`FOUND DATE at ${date} ${time}`)
-        log(`FOUND DATE at ${date} ${time}`)
+        // Calculate the difference in days
+        const differenceInDays = (newDate - currentDate) / (1000 * 60 * 60 * 24);
 
-        exec('toast64.exe --app-id "US VISA BOT" --title "AVAILABLE DATE FOUND" --message "A closer available date for scheduling was found for the US VISA." --audio "default" --loop --activation-arg "https://ais.usvisa-info.com/pt-pt/niv/users/sign_in"', (error, stdout, stderr) => {
-          if (error) {
-            console.error(`Error: ${error.message}`);
-            return;
-          }
-          if (stderr) {
-            console.error(`Standard Error: ${stderr}`);
-            return;
-          }
-          console.log(`Output: ${stdout}`);
-        });
-        
-        await book(sessionHeaders, date, time)
-          .then(d => log(`booked time at ${date} ${time}`))
-        
-        await sleep(30000); // 30 seconds
-        await sleep(15000); // 15 seconds
+        if (differenceInDays > 1) {
+          const time = await checkAvailableTime(sessionHeaders, date);
 
-        process.exit(0); // Exit with a success code
+          log(`FOUND DATE at ${date} ${time}`);
+          log(`FOUND DATE at ${date} ${time}`);
+          log(`FOUND DATE at ${date} ${time}`);
 
-      } else if (date == currentBookedDate) {
-        log(`The available date is equal to your booked date (${date})`)
+          // exec(
+          //   'toast64.exe --app-id "US VISA BOT" --title "AVAILABLE DATE FOUND" --message "A closer available date for scheduling was found for the US VISA." --audio "default" --loop --activation-arg "https://ais.usvisa-info.com/pt-pt/niv/users/sign_in"',
+          //   (error, stdout, stderr) => {
+          //     if (error) {
+          //       console.error(`Error: ${error.message}`);
+          //       return;
+          //     }
+          //     if (stderr) {
+          //       console.error(`Standard Error: ${stderr}`);
+          //       return;
+          //     }
+          //     console.log(`Output: ${stdout}`);
+          //   }
+          // );
+
+          await book(sessionHeaders, date, time)
+            .then(() => log(`Booked time at ${date} ${time}`))
+            .catch(err => {
+              console.error(`Error booking date: ${err}`);
+              log(`Retrying script with the current booked date: ${currentBookedDate} `);
+              main(currentBookedDate); // Restart with the problematic date
+              return;
+            });
+          
+          currentBookedDate = date;
+            
+          // Restart main with the newly booked date
+          log(`Restarting main with the newly booked date: ${currentBookedDate}`);
+          main(currentBookedDate);
+          return;
+        } else {
+          log(`Found date ${date} is only 1 day before the current booked date (${currentBookedDate}), skipping.`);
+        }
+      } else if (date === currentBookedDate) {
+        log(`The available date is equal to your booked date (${date})`);
       } else {
-        log(`Check if there's any problem with the APPLICATION (${date})`)
+        log(`Check if there's any problem with the APPLICATION (${date})`);
       }
 
-      await sleep(REFRESH_DELAY)
+      await sleep(REFRESH_DELAY);
     }
-
-  } catch(err) {
-    console.error(err)
-    log("Trying again")
-
-    main(currentBookedDate)
+  } catch (err) {
+    console.error(err);
+    log(`Error occurred. Retrying main with currentBookedDate: ${currentBookedDate}`);
+    main(currentBookedDate); // Retry with the last used date
   }
 }
 
@@ -215,7 +233,5 @@ function sleep(s) {
 function log(message) {
   console.log(`[${new Date().toISOString()}]`, message)
 }
-
-
 
 main(CURRENT_SCHEDULED_DATE)
